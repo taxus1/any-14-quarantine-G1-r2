@@ -103,6 +103,30 @@ private <T> Mono<T> blocking(Supplier<T> supplier) {
 所以派生字段放在接口层：`PageVO` 多带一个 `totalPages`，`PageResult` 保持零框架依赖。
 序列化相关的取舍留在接口层，这正是分层的意义。
 
+## 业务模块：养殖场档案与耳标（动监站档案）
+
+建表契约：`doc/schema/quarantine.sql` 中的 `t_farm` / `t_ear_tag`（create 阶段已建好，模型不碰建表）。
+
+| 资源 | 方法与路径 | 说明 |
+|---|---|---|
+| 养殖场 | `POST /api/farms` | 登记：编号自动 `FM-{年}-{4 位}`，状态默认 ACTIVE，存栏默认 0 |
+| | `GET /api/farms` | 名册分页：`farmName/farmNo/species/status` 任意组合，全空返回全量；每行带 farmNo |
+| | `GET /api/farms/{id}` | 单条查档 |
+| | `PUT /api/farms/{id}` | 改档：场名/负责人/联系方式/场址/种类/存栏，字段缺省即不改（编号不可改） |
+| | `PUT /api/farms/{id}/status` | 业务状态 ACTIVE/SUSPENDED/**CLOSED 注销**（注销仍在名册可筛） |
+| | `DELETE /api/farms/{id}` | 销档（`@TableLogic` 软删，名单里不再出现） |
+| 耳标 | `POST /api/ear-tags` | 领标：只传 `farmId`，编号自动 `ET-{年}-{6 位}`，**种类照所属场**，默认 ISSUED |
+| | `GET /api/ear-tags` | 分页：`farmId/species/status/tagNo` 任意组合；每行带 tagNo |
+| | `GET /api/ear-tags/{id}` | 单条查 |
+| | `PUT /api/ear-tags/{id}` | 改挂场（种类跟随新场）/ 改状态（USED 自动记 wornAt）/ 补记发放佩戴时刻 |
+| | `DELETE /api/ear-tags/{id}` | 缴销（软删） |
+
+- 单号取号：按年度前缀 `MAX(编号)+1`，**取号范围含已软删记录（号一经分配永不复用）**，唯一键兜底 + 撞号重取，保证全局不重号。
+- 分页固定按 id 升序（PageHelper），跨页不重样。
+- 端到端集成测试：`src/test/.../FarmApiIT.java`、`EarTagApiIT.java`，直连验收 MySQL；
+  测试数据场名统一带 `IT-` 前缀，清理一律带 WHERE，另植入 2025 年存量号验证「历史数据可读且不占新年序号」。
+  验收时运行：`mvn test -Dsurefire.skip=false -Dtest='FarmApiIT,EarTagApiIT'`。
+
 ## 目录（DDD 四层）
 
 ```
